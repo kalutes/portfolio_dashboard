@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Private source archives and one-time manual import evidence.
+    "data/**",
   ]),
 ]);
 

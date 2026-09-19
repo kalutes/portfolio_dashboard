@@ -1,0 +1,8 @@
+node_modules
+.next
+package-lock.json
+.env*
+!.env.example
+AGENTS.md
+CLAUDE.md
+data/

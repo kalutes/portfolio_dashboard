@@ -1,0 +1,41 @@
+# TrueNAS Docker Apps: Install via YAML. Replace CHANGE_ME values before deployment.
+# Keep matching web/worker tags. Replace latest with a release or sha tag to pin a version.
+services:
+  dashboard:
+    image: ghcr.io/kalutes/portfolio_dashboard:latest
+    restart: unless-stopped
+    user: "1000:1000"
+    ports:
+      - "127.0.0.1:3000:3000" # Tailscale Serve / HTTPS reverse proxy on this host
+    environment:
+      DASHBOARD_PASSWORD: "CHANGE_ME_USE_A_LONG_UNIQUE_PASSWORD"
+      DASHBOARD_SESSION_SECRET: "CHANGE_ME_GENERATE_A_RANDOM_SECRET_AT_LEAST_32_CHARACTERS"
+      AUTH_COOKIE_SECURE: "true"
+      MANUAL_DB_PATH: /data/manual.sqlite
+      HISTORY_DB_PATH: /history/portfolio.sqlite
+    volumes:
+      - /mnt/CHANGE_ME_POOL/portfolio/manual:/data
+      - /mnt/CHANGE_ME_POOL/portfolio/history:/history:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+  snapshots:
+    image: ghcr.io/kalutes/portfolio_dashboard-snapshots:latest
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      SNAPTRADE_CLIENT_ID: "CHANGE_ME"
+      SNAPTRADE_CONSUMER_KEY: "CHANGE_ME"
+      MANUAL_DB_PATH: /data/manual.sqlite
+      HISTORY_DB_PATH: /history/portfolio.sqlite
+      SNAPSHOT_UTC_HOUR: "22"
+    volumes:
+      - /mnt/CHANGE_ME_POOL/portfolio/manual:/data
+      - /mnt/CHANGE_ME_POOL/portfolio/history:/history
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]

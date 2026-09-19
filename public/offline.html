@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0b111d" />
+    <title>Portfolio · Offline</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        min-height: 100svh;
+        display: grid;
+        place-items: center;
+        background: #0b111d;
+        color: #edf2fa;
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 28rem;
+        padding: max(24px, env(safe-area-inset-top)) 24px
+          max(24px, env(safe-area-inset-bottom));
+      }
+      h1 {
+        font-size: 2rem;
+        letter-spacing: -0.04em;
+      }
+      p {
+        color: #a0aec2;
+      }
+      a {
+        display: inline-block;
+        padding: 12px 20px;
+        border-radius: 10px;
+        background: #82e4c5;
+        color: #0b2720;
+        font-weight: 600;
+        text-decoration: none;
+      }
+      a:focus-visible {
+        outline: 3px solid #a5b4fc;
+        outline-offset: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>You’re offline.</h1>
+      <p>
+        Connect to your network and Tailscale to reach your portfolio. No
+        financial data is stored in this offline screen.
+      </p>
+      <a href="/">Try again</a>
+    </main>
+  </body>
+</html>
