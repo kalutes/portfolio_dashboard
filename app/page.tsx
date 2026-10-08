@@ -15,6 +15,9 @@ import {
   type AccountExclusion,
 } from "@/lib/account-inclusion";
 import { readAccountExclusions } from "@/lib/account-exclusion-store";
+import DataTable from "./components/data-table";
+import HistoricalTradesSection from "./components/historical-trades-section";
+import { unrealizedPerformance, gainPercent } from "@/lib/performance";
 import SymbolAllocation from "./components/symbol-allocation";
 
 function State<T>({
@@ -41,63 +44,6 @@ function Freshness({ at }: { at: string | null }) {
     <p className="muted">
       {freshness(at)} · Brokerage timestamp: {date(at)}
     </p>
-  );
-}
-function Table({
-  headers,
-  rows,
-  empty,
-}: {
-  headers: string[];
-  rows: ReactNode[][];
-  empty: string;
-}) {
-  if (!rows.length) return <p className="empty">{empty}</p>;
-  return (
-    <>
-      <div
-        className="table-scroll positions-table"
-        tabIndex={0}
-        role="region"
-        aria-label={`${headers[0]} data table`}
-      >
-        <table>
-          <thead>
-            <tr>
-              {headers.map((h) => (
-                <th scope="col" key={h}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, i) => (
-              <tr key={i}>
-                {row.map((cell, j) => (
-                  <td key={j}>{cell}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="position-cards">
-        {rows.map((row, i) => (
-          <article className="position-card" key={i}>
-            <div className="position-identity">{row[0]}</div>
-            <dl>
-              {row.slice(1).map((cell, j) => (
-                <div key={headers[j + 1]}>
-                  <dt>{headers[j + 1]}</dt>
-                  <dd>{cell}</dd>
-                </div>
-              ))}
-            </dl>
-          </article>
-        ))}
-      </div>
-    </>
   );
 }
 export default async function Home() {
@@ -352,40 +298,61 @@ export default async function Home() {
               {(positions) => (
                 <>
                   {!d.manual && <Freshness at={positions.asOf} />}
-                  <Table
+                  <DataTable
                     headers={[
                       "Instrument",
                       "Units",
                       "Price",
                       "Estimated value",
-                      "Total cost basis",
+                      "Cost basis",
+                      "Unrealized gain / loss",
+                      "Gain / loss %",
                       "Acquired",
                     ]}
                     empty="No positions reported."
-                    rows={positions.rows.map((p) => [
-                      <>
-                        <strong>{p.symbol}</strong>
-                        <small>{p.description}</small>
-                        {p.lots.length > 0 && (
-                          <details>
-                            <summary>{p.lots.length} purchase lot(s)</summary>
-                            {p.lots.map((lot, i) => (
-                              <p key={i}>
-                                {lot.date ?? "Date unavailable"} ·{" "}
-                                {number(lot.quantity)} units · Basis{" "}
-                                {money(lot.costBasis)}
-                              </p>
-                            ))}
-                          </details>
-                        )}
-                      </>,
-                      number(p.units),
-                      money(p.price),
-                      money(p.value),
-                      money(p.costBasis),
-                      p.acquiredDate ??
-                        (p.lots.length > 1 ? "Multiple lots" : "Unavailable"),
-                    ])}
+                    rows={positions.rows.map((p) => {
+                      const performance = unrealizedPerformance(
+                        p.value.amount,
+                        p.costBasis.amount,
+                      );
+                      return [
+                        <>
+                          <strong>{p.symbol}</strong>
+                          <small>{p.description}</small>
+                          {p.lots.length > 0 && (
+                            <details>
+                              <summary>{p.lots.length} purchase lot(s)</summary>
+                              {p.lots.map((lot, i) => (
+                                <p key={i}>
+                                  {lot.date ?? "Date unavailable"} ·{" "}
+                                  {number(lot.quantity)} units · Basis{" "}
+                                  {money(lot.costBasis)}
+                                </p>
+                              ))}
+                            </details>
+                          )}
+                        </>,
+                        number(p.units),
+                        money(p.price),
+                        money(p.value),
+                        money(p.costBasis),
+                        <span
+                          key="gain"
+                          className={
+                            performance.gain === null
+                              ? "muted"
+                              : performance.gain < 0
+                                ? "performance-loss"
+                                : "performance-gain"
+                          }
+                        >
+                          {money(performance.gain)}
+                        </span>,
+                        gainPercent(performance.gainPercent),
+                        p.acquiredDate ??
+                          (p.lots.length > 1 ? "Multiple lots" : "Unavailable"),
+                      ];
+                    })}
                   />
                   <p className="muted">
                     {d.manual ? (
@@ -404,6 +371,7 @@ export default async function Home() {
           </article>
         ))}
       </section>
+      <HistoricalTradesSection />
       <footer>
         Personal portfolio · SnapTrade read-only · Manual holdings saved locally
       </footer>

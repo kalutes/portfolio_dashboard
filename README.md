@@ -16,6 +16,16 @@ Fill in `SNAPTRADE_CLIENT_ID`, `SNAPTRADE_CONSUMER_KEY`, `DASHBOARD_PASSWORD` an
 
 The app opens at http://127.0.0.1:3000. Open **Manual holdings** to manage outside accounts, purchase-lot quantities, acquisition dates, total cost basis and Yahoo quote symbols. Manual edits affect current values and future daily snapshots; previously recorded history does not change.
 
+## Allocation, cost basis and trade history
+
+The allocation donut groups included positions by symbol. Each profitable symbol uses a muted cost-basis segment and a brighter unrealized-gain segment, with the combined arc still equal to its current value. Hover, keyboard focus or tap reveals the breakdown. Losses remain visible as negative dollar and percentage changes in details, without adding negative arcs. Cash stays unsplit. If any included position for a symbol lacks a value or valid basis, the combined basis and gain are unavailable; missing basis is never treated as zero. A known zero basis has a dollar gain but no defined percentage return.
+
+Account position rows show cost basis and unrealized gain/loss in dollars and percent, including on mobile. These are price gains based on saved broker/manual data, not total returns or tax calculations; they exclude dividends and realized gains. Quotes and basis can have different source dates.
+
+The **Historical trades** section reads the optional `historical_trades` table from `portfolio.sqlite`. It provides search, buy/sell and account filters, and pagination. The compact table holds normalized recorded buys/sells and source-quality notes, including closed accounts; current-account exclusions do not erase historical trades. The detailed archive is used only for offline preparation, never mounted into the app or copied into the image. Personal trade records stay in private SQLite files; source tests contain synthetic data only.
+
+Use a prepared database containing the table to enable this section. Without it, the page shows an import notice; a read error leaves other sections available. Dates may represent trades, statement activity, settlement or reviewed estimates, as labeled. Reported amounts may include fees and are not realized profits. Coverage is limited to imported records. Daily SnapTrade snapshots do not fetch new transactions, so they do not extend trade history automatically. Existing historical valuations and exclusion settings are unaffected by importing the trade table. Back up before replacing a production database, and use a current export to avoid losing newer observations.
+
 ## Password protection
 
 `DASHBOARD_PASSWORD` is the single shared password. `DASHBOARD_SESSION_SECRET` signs the 30-day HttpOnly, SameSite=Lax session cookie. The app stays locked when either setting is missing or the secret is shorter than 32 characters. There are no authentication database tables. Changing either value and restarting the web container invalidates every existing session. **Sign out** removes the cookie from the current browser.
@@ -33,7 +43,7 @@ Only two databases are needed:
 | `data/portfolio.sqlite` / `HISTORY_DB_PATH` | Frozen historical values plus appended daily snapshots         |
 | `data/manual.sqlite` / `MANUAL_DB_PATH`     | Editable manual accounts, holdings and last-known Yahoo quotes |
 
-The portfolio database has five observation tables and an optional accounting-settings table:
+The portfolio database has five observation tables and optional accounting-settings and trade-history tables:
 
 - `portfolio_values`: one total per UTC date, including missing-value, estimate and stale-data flags, plus retrieval time for new observations.
 - `portfolio_holdings`: that date's consolidated symbols, quantities, values and valuation-method labels. No account reconciliation is needed.
@@ -41,6 +51,7 @@ The portfolio database has five observation tables and an optional accounting-se
 - `metadata`: schema version, read revision, historical cutoff and original seed checksum.
 - `latest_sources`: the latest normalized cash/holdings for each hashed source, used only to carry data forward during outages. This contains no transfer or transaction history.
 - `account_exclusions`: optional private account IDs and reasons excluded from current and future accounting. Created when the first exclusion is saved.
+- `historical_trades`: normalized imported buys/sells with display fields, reported quantities/prices/amounts, date conventions and quality notes.
 
 All 3,135 imported dates and 44,355 holding records through August 31, 2026 were preserved during compaction. Estimates, missing values and interpolation dates remain visible. The frozen seed retains its existing coverage limits; a fully priced date means the known imported portfolio, not proof that every former provider was covered. The application assumes USD for these consolidated values, as agreed; it does not convert currencies.
 

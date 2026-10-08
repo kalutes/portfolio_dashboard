@@ -24,7 +24,11 @@ export default function SymbolAllocation({
       <p className="muted">
         Holdings combined across accounts, with cash and cash equivalents in one
         Cash category. Weights use available estimated holdings and cash values,
-        which may differ from reported account totals.
+        which may differ from reported account totals. Muted and brighter shades
+        show cost basis and positive unrealized gain for each symbol. Losing
+        holdings keep their current slice size; losses appear in the details.
+        Unknown or incomplete basis uses an unsplit slice. Cash is not split
+        into basis and gain.
       </p>
       {allocation.partial && (
         <p className="notice" role="status">
