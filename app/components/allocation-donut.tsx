@@ -4,6 +4,7 @@ import { useState } from "react";
 import { money } from "@/lib/format";
 import { gainPercent } from "@/lib/performance";
 import { allocationSegments, type AllocationRow } from "@/lib/allocation";
+import BasisWarning, { basisWarningText } from "./basis-warning";
 
 export default function AllocationDonut({
   rows,
@@ -45,7 +46,7 @@ export default function AllocationDonut({
                 (sum, prior) => sum + (prior.amount / total) * circumference,
                 0,
               );
-            const label = `${slice.symbol}: ${money(slice.amount)}, ${percent(slice.percent)}. ${slice.isCash ? "Cash." : `Cost basis ${money(slice.costBasis)}. Unrealized gain or loss ${money(slice.gain)}, ${gainPercent(slice.gainPercent)}.`}`;
+            const label = `${slice.symbol}: ${money(slice.amount)}, ${percent(slice.percent)}. ${slice.isCash ? "Cash." : `Cost basis ${money(slice.costBasis)}. Unrealized gain or loss ${money(slice.gain)}, ${gainPercent(slice.gainPercent)}. ${basisWarningText(slice)}`}`;
             return (
               <g
                 key={slice.symbol}
@@ -104,7 +105,9 @@ export default function AllocationDonut({
                         {part.kind === "basis" && (slice.gain ?? 0) < 0
                           ? "Remaining value below cost basis"
                           : part.kind === "basis"
-                            ? "Cost basis"
+                            ? slice.basisEstimated
+                              ? "Estimated cost basis"
+                              : "Cost basis"
                             : part.kind === "gain"
                               ? "Unrealized gain"
                               : part.kind === "cash"
@@ -150,7 +153,7 @@ export default function AllocationDonut({
             ) : (
               <dl>
                 <div>
-                  <dt>Cost basis</dt>
+                  <dt>Cost basis{row.basisEstimated ? " (estimated)" : ""}</dt>
                   <dd>{money(row.costBasis)}</dd>
                 </div>
                 <div>
@@ -173,6 +176,7 @@ export default function AllocationDonut({
                 </div>
               </dl>
             )}
+            <BasisWarning status={row} />
           </>
         ) : (
           <p className="muted">

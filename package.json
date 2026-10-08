@@ -13,6 +13,7 @@
     "test": "node --conditions=react-server --import tsx --test tests/*.test.ts",
     "snapshot": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/snapshot.ts",
     "snapshot:daemon": "npm run snapshot -- --daemon",
+    "sync:trades": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/sync-trades.ts",
     "test:docker": "node --conditions=react-server --import tsx scripts/docker-smoke.ts"
   },
   "dependencies": {

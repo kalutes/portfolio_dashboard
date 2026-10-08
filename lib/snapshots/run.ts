@@ -7,6 +7,7 @@ import { withManualStore } from "../manual/store";
 import { normalizeSnapshot } from "./normalize";
 import { appendSnapshot, loadSnapshotSources } from "./store";
 import { readAccountExclusions } from "../account-exclusion-store";
+import { syncTrades } from "../trade-sync/run";
 
 function manualRevision() {
   try {
@@ -29,6 +30,18 @@ function manualRevision() {
 export async function runDailySnapshot() {
   const client = createSnaptrade();
   if (!client) throw new Error("SnapTrade credentials are not configured.");
+  const [snapshot, trades] = await Promise.allSettled([
+    saveSnapshot(client),
+    syncTrades(client),
+  ]);
+  if (snapshot.status === "rejected") throw new Error("Snapshot failed");
+  if (trades.status === "rejected" || trades.value.failed)
+    throw new Error("Trade sync incomplete; snapshot saved");
+  return snapshot.value;
+}
+async function saveSnapshot(
+  client: NonNullable<ReturnType<typeof createSnaptrade>>,
+) {
   const before = manualRevision();
   const [portfolio, manual] = await Promise.all([
     loadPortfolio(client),

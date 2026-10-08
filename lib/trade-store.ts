@@ -4,7 +4,7 @@ import { numeric } from "./normalize";
 import { validHistoryDay } from "./historical-types";
 import type { HistoricalTrade, TradeHistory } from "./trade-types";
 
-// Populated offline from reconciled records, not inferred from daily value snapshots.
+// Imported records plus verified brokerage activities; never inferred from holdings.
 export const tradeSchema = `CREATE TABLE IF NOT EXISTS historical_trades (
   id TEXT PRIMARY KEY, date TEXT NOT NULL, symbol TEXT NOT NULL, description TEXT NOT NULL,
   account TEXT NOT NULL, institution TEXT NOT NULL, side TEXT NOT NULL CHECK(side IN ('BUY','SELL')),
@@ -64,6 +64,36 @@ export function loadHistoricalTrades(path?: string): TradeHistory {
       available: true,
       importedAt: typeof importedAt === "string" ? importedAt : null,
       trades,
+      ...(db
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type='table' AND name='trade_sync_state'",
+        )
+        .get()
+        ? {
+            sync: {
+              attemptedAt:
+                (db
+                  .prepare(
+                    "SELECT MAX(attemptedAt) AS value FROM trade_sync_state",
+                  )
+                  .get()?.value as string | null) ?? null,
+              pending: Number(
+                db
+                  .prepare(
+                    "SELECT COUNT(*) AS n FROM trade_sync_records WHERE status='review'",
+                  )
+                  .get()?.n ?? 0,
+              ),
+              failed: Number(
+                db
+                  .prepare(
+                    "SELECT COUNT(*) AS n FROM trade_sync_state WHERE failed=1",
+                  )
+                  .get()?.n ?? 0,
+              ),
+            },
+          }
+        : {}),
     };
   }, path);
 }

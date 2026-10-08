@@ -17,6 +17,7 @@ export type TradeHistory = {
   available: boolean;
   importedAt: string | null;
   trades: HistoricalTrade[];
+  sync?: { attemptedAt: string | null; pending: number; failed: number };
 };
 
 export function filterTrades(

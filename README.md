@@ -18,13 +18,13 @@ The app opens at http://127.0.0.1:3000. Open **Manual holdings** to manage outsi
 
 ## Allocation, cost basis and trade history
 
-The allocation donut groups included positions by symbol. Each profitable symbol uses a muted cost-basis segment and a brighter unrealized-gain segment, with the combined arc still equal to its current value. Hover, keyboard focus or tap reveals the breakdown. Losses remain visible as negative dollar and percentage changes in details, without adding negative arcs. Cash stays unsplit. If any included position for a symbol lacks a value or valid basis, the combined basis and gain are unavailable; missing basis is never treated as zero. A known zero basis has a dollar gain but no defined percentage return.
+The allocation donut groups included positions by symbol. Each profitable symbol uses a muted cost-basis segment and a brighter unrealized-gain segment, with the combined arc still equal to its current value. Hover, keyboard focus or tap reveals the breakdown. Losses remain visible as negative dollar and percentage changes in details, without adding negative arcs. Cash stays unsplit. Missing basis is treated as break-even only for the affected portion: its current value is used as an estimated basis, preserving gains/losses on the known portion. If the aggregate position basis is missing, valid lot quantities and total lot bases are used where available, and uncovered units receive the same break-even assumption. The donut details and holdings table flag the affected market value and label the basis as estimated; reported database values are unchanged. Missing market values still leave combined performance unavailable. A known zero basis has a dollar gain but no defined percentage return.
 
 Account position rows show cost basis and unrealized gain/loss in dollars and percent, including on mobile. These are price gains based on saved broker/manual data, not total returns or tax calculations; they exclude dividends and realized gains. Quotes and basis can have different source dates.
 
 The **Historical trades** section reads the optional `historical_trades` table from `portfolio.sqlite`. It provides search, buy/sell and account filters, and pagination. The compact table holds normalized recorded buys/sells and source-quality notes, including closed accounts; current-account exclusions do not erase historical trades. The detailed archive is used only for offline preparation, never mounted into the app or copied into the image. Personal trade records stay in private SQLite files; source tests contain synthetic data only.
 
-Use a prepared database containing the table to enable this section. Without it, the page shows an import notice; a read error leaves other sections available. Dates may represent trades, statement activity, settlement or reviewed estimates, as labeled. Reported amounts may include fees and are not realized profits. Coverage is limited to imported records. Daily SnapTrade snapshots do not fetch new transactions, so they do not extend trade history automatically. Existing historical valuations and exclusion settings are unaffected by importing the trade table. Back up before replacing a production database, and use a current export to avoid losing newer observations.
+Use a prepared database containing the table to enable this section. Without it, the page shows an import notice; a read error leaves other sections available. Dates may represent trades, statement activity, settlement or reviewed estimates, as labeled. Reported amounts may include fees and are not realized profits. The daily worker also fetches brokerage activities and extends trade history with verified new buys, sells and reinvestments. Ambiguous or unsupported records remain in a private review queue, with a count and request-failure notice on the dashboard. Existing historical valuations and exclusion settings are unaffected by importing the trade table. Back up before replacing a production database, and use a current export to avoid losing newer observations.
 
 ## Password protection
 
@@ -51,11 +51,14 @@ The portfolio database has five observation tables and optional accounting-setti
 - `metadata`: schema version, read revision, historical cutoff and original seed checksum.
 - `latest_sources`: the latest normalized cash/holdings for each hashed source, used only to carry data forward during outages. This contains no transfer or transaction history.
 - `account_exclusions`: optional private account IDs and reasons excluded from current and future accounting. Created when the first exclusion is saved.
-- `historical_trades`: normalized imported buys/sells with display fields, reported quantities/prices/amounts, date conventions and quality notes.
+- `historical_trades`: normalized imported and synced buys/sells with display fields, reported quantities/prices/amounts, date conventions and quality notes.
+- `trade_account_links`: private mapping from brokerage account IDs to imported trade account/institution labels, with an inclusive imported-coverage cutoff.
+- `trade_sync_records`: normalized trade candidates, API identity, matching/review outcome and linked trade ID.
+- `trade_sync_state`: last attempt, last completed activity retrieval and failure state per account.
 
 All 3,135 imported dates and 44,355 holding records through August 31, 2026 were preserved during compaction. Estimates, missing values and interpolation dates remain visible. The frozen seed retains its existing coverage limits; a fully priced date means the known imported portfolio, not proof that every former provider was covered. The application assumes USD for these consolidated values, as agreed; it does not convert currencies.
 
-SQLite triggers prevent editing/deleting recorded days and inserting into the frozen historical period. New snapshots combine available updates with the most recently observed holdings for unavailable sources, including manual accounts. Holdings are never added on top of the previous portfolio total. No raw brokerage responses, credentials, full account numbers, PDFs, transaction histories or transfer records are stored by the daily worker. The dashboard state retains normalized display fields, including account identifiers, names, number suffixes and available position cost-basis/lot details. Source keys in `latest_sources` are hashes used to match successive observations.
+SQLite triggers prevent editing/deleting recorded days and inserting into the frozen historical period. New snapshots combine available updates with the most recently observed holdings for unavailable sources, including manual accounts. Holdings are never added on top of the previous portfolio total. No raw brokerage responses, credentials, full account numbers or PDFs are stored by the daily worker. Trade sync stores only normalized activity fields needed for matching and review; it does not reconstruct transfers or change historical valuations. The dashboard state retains normalized display fields, including account identifiers, names, number suffixes and available position cost-basis/lot details. Source keys in `latest_sources` are hashes used to match successive observations.
 
 The old `HISTORY_POINTER_PATH` setting is no longer used. Set `HISTORY_DB_PATH` to the actual compact SQLite file if you use a custom location.
 
@@ -75,6 +78,24 @@ node --conditions=react-server --import tsx scripts/account-exclusions.ts --impo
 ```
 
 `--import-from` reads only the settings table from another SQLite file and atomically adds/updates those settings in the live database; it does not replace observations or unrelated exclusions. `--list` intentionally displays the private settings to the administrator; do not paste its output into tracked files or public logs. The other commands only report success/failure. Deploy the same updated version to both containers and apply the database setting; deploying code alone does not exclude any account. Existing historical dates are not rewritten. Back up the database before making changes. For a production audit, place consistent SQLite backups under ignored `data/prod-audit/`, without overwriting the local working databases.
+
+## Daily trade sync
+
+The snapshot worker calls `getAccountActivities` independently of portfolio valuation. It reads all available pages each day (two accounts at a time), which catches late arrivals and older corrections. Rate limits and server errors get bounded exponential retries. A failed page prevents that account's partial results from being accepted; other accounts still complete. Worker failures retry after 15 minutes. Transactions may be delayed by the brokerage, and a completed request does not guarantee fresh upstream data.
+
+Only an explicit mapping in `trade_account_links` allows automatic additions. Configure mappings using a private JSON array passed to `npm run sync:trades -- --link-stdin`. Each element has `accountId`, `account`, `institution`, and `coveredThrough` (YYYY-MM-DD). The account/institution labels must match the imported trade table exactly. The cutoff is the last day covered by the import, not the date of its most recent trade. Never put real mappings in source or deployment YAML. Unmapped accounts are queued for review.
+
+Matching uses account, symbol, side, quantity (within 0.000001), amount (within two cents, or price when an amount is absent), and a four-calendar-day trade/settlement date window. Ambiguous fills, possible duplicates, changed API IDs, changed linked records, and unmatched records inside imported coverage require review. Repeated unchanged activity IDs do not create trades. Imported rows are never overwritten. Unsupported activity types (including option exercise/assignment) are flagged; ordinary cash movements and corporate actions are not buys/sells. Only confirmed USD trade amounts are currently accepted automatically.
+
+For a local audit, first make a SQLite backup/copy while database writers are stopped, then point `HISTORY_DB_PATH` to that copy:
+
+```bash
+HISTORY_DB_PATH=data/trade-audit.sqlite npm run sync:trades
+HISTORY_DB_PATH=data/trade-audit.sqlite npm run sync:trades -- --report data/trade-audit.json
+HISTORY_DB_PATH=data/trade-audit.sqlite npm run sync:trades -- --replay
+```
+
+The report contains private normalized financial records; keep it under ignored `data/`. Report creation refuses to overwrite an existing file. Replay makes no API requests and is useful after adding mappings or checking idempotency. Review candidates are deliberately withheld from the trade list, pending examination of the private report. A removed upstream activity does not automatically delete a previously recorded trade. The tables are created by the worker when absent; the web app still reads older databases. Back up before replacing a deployment database and preserve observations recorded since any audit copy was made.
 
 ## Daily snapshots
 

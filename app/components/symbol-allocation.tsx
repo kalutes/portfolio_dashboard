@@ -27,8 +27,9 @@ export default function SymbolAllocation({
         which may differ from reported account totals. Muted and brighter shades
         show cost basis and positive unrealized gain for each symbol. Losing
         holdings keep their current slice size; losses appear in the details.
-        Unknown or incomplete basis uses an unsplit slice. Cash is not split
-        into basis and gain.
+        Portions with missing cost basis are treated as break-even, with the
+        affected value flagged in the details. Gains and basis for those symbols
+        are estimates. Cash is not split into basis and gain.
       </p>
       {allocation.partial && (
         <p className="notice" role="status">

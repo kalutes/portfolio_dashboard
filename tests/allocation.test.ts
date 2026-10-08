@@ -38,10 +38,12 @@ test("combines symbols across accounts and counts cash equivalents only once", (
       symbol: "ABC",
       amount: 150,
       percent: 50,
-      costBasis: null,
-      gain: null,
-      gainPercent: null,
+      costBasis: 150,
+      gain: 0,
+      gainPercent: 0,
       isCash: false,
+      basisEstimated: true,
+      missingBasisValue: 150,
     },
     {
       symbol: "Cash",
@@ -51,6 +53,8 @@ test("combines symbols across accounts and counts cash equivalents only once", (
       gain: null,
       gainPercent: null,
       isCash: true,
+      basisEstimated: false,
+      missingBasisValue: 0,
     },
   ]);
 });
@@ -146,11 +150,8 @@ test("aggregates basis before computing gain and weighted percentage across acco
   assert.equal(row.amount, 350);
 });
 
-test("missing basis or value in any account leaves aggregate gain unknown in either order", () => {
-  for (const missing of [
-    position("ABC", "100"),
-    position("ABC", null, false, "80"),
-  ]) {
+test("missing value leaves aggregate gain unknown in either order", () => {
+  for (const missing of [position("ABC", null, false, "80")]) {
     for (const positions of [
       [position("ABC", "200", false, "100"), missing],
       [missing, position("ABC", "200", false, "100")],
@@ -194,4 +195,46 @@ test("losses, break-even and zero-cost holdings never distort current allocation
       assert.deepEqual(parts, [{ kind: "gain", amount: value }]);
     }
   }
+});
+
+test("missing basis in one account preserves another account's known gain in either order", () => {
+  for (const positions of [
+    [position("ABC", "200", false, "100"), position("ABC", "50")],
+    [position("ABC", "50"), position("ABC", "200", false, "100")],
+  ]) {
+    const result = allocationBySymbol([
+      { balances: [{ amount: 0 }], positions },
+    ]);
+    const row = result.rows[0];
+    assert.equal(result.total, 250);
+    assert.equal(row.costBasis, 150);
+    assert.equal(row.gain, 100);
+    assert.equal(row.gainPercent, (100 / 150) * 100);
+    assert.equal(row.basisEstimated, true);
+    assert.equal(row.missingBasisValue, 50);
+    assert.deepEqual(allocationSegments(row), [
+      { kind: "basis", amount: 150 },
+      { kind: "gain", amount: 100 },
+    ]);
+  }
+});
+
+test("partial lots and a second account combine without double-counting the missing portion", () => {
+  const p = position("ABC", "100");
+  p.units = 10;
+  p.lots = [
+    { date: null, quantity: 4, costBasis: { amount: 20 } },
+    { date: null, quantity: 6, costBasis: { amount: null } },
+  ];
+  const row = allocationBySymbol([
+    { balances: [{ amount: 0 }], positions: [p, position("ABC", "50")] },
+  ]).rows[0];
+  assert.equal(row.amount, 150);
+  assert.equal(row.costBasis, 130);
+  assert.equal(row.gain, 20);
+  assert.equal(row.missingBasisValue, 110);
+  assert.equal(
+    allocationSegments(row).reduce((sum, part) => sum + part.amount, 0),
+    150,
+  );
 });

@@ -11,7 +11,7 @@ async function attempt() {
   } catch {
     // Never log SDK errors, account identifiers or response bodies.
     console.error(
-      `${new Date().toISOString()} Snapshot not recorded. Check credentials, connection status, data availability and database permissions.`,
+      `${new Date().toISOString()} Daily sync incomplete; successful snapshot or trade updates were retained. Check credentials, connection status, data availability and database permissions.`,
     );
     return false;
   }

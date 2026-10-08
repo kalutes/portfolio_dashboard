@@ -1,6 +1,6 @@
 import type { Money, normalizePosition } from "./normalize";
 
-import { unrealizedPerformance } from "./performance";
+import { unrealizedPerformance, positionPerformance } from "./performance";
 
 type Position = ReturnType<typeof normalizePosition>;
 export type AllocationInput = {
@@ -15,6 +15,8 @@ export function allocationBySymbol(accounts: AllocationInput[]) {
       amount: number;
       costBasis: number | null;
       isCash: boolean;
+      basisEstimated: boolean;
+      missingBasisValue: number | null;
     }
   >();
   let partial = false;
@@ -22,7 +24,7 @@ export function allocationBySymbol(accounts: AllocationInput[]) {
     symbol: string,
     value: Money,
     cash = false,
-    basis: number | null = null,
+    performance?: ReturnType<typeof positionPerformance>,
   ) {
     if (!symbol.trim()) {
       partial = true;
@@ -31,6 +33,7 @@ export function allocationBySymbol(accounts: AllocationInput[]) {
     const key = cash ? "cash" : `symbol:${symbol}`;
     const previous = symbols.get(key);
     const validValue = value.amount !== null && Number.isFinite(value.amount);
+    const basis = performance?.costBasis ?? null;
     const validBasis = basis !== null && Number.isFinite(basis) && basis >= 0;
     if (!validValue) partial = true;
     symbols.set(key, {
@@ -44,6 +47,15 @@ export function allocationBySymbol(accounts: AllocationInput[]) {
           ? (previous?.costBasis ?? 0) + basis!
           : null,
       isCash: cash,
+      basisEstimated:
+        (previous?.basisEstimated ?? false) ||
+        (performance?.basisEstimated ?? false),
+      missingBasisValue:
+        previous?.missingBasisValue === null ||
+        performance?.missingBasisValue === null
+          ? null
+          : (previous?.missingBasisValue ?? 0) +
+            (performance?.missingBasisValue ?? 0),
     });
   }
   for (const account of accounts) {
@@ -63,7 +75,12 @@ export function allocationBySymbol(accounts: AllocationInput[]) {
           add("Cash", position.value, true);
         }
       } else
-        add(position.symbol, position.value, false, position.costBasis.amount);
+        add(
+          position.symbol,
+          position.value,
+          false,
+          positionPerformance(position),
+        );
     }
   }
   const rows = [...symbols.values()]

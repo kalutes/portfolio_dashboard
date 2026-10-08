@@ -17,7 +17,8 @@ import {
 import { readAccountExclusions } from "@/lib/account-exclusion-store";
 import DataTable from "./components/data-table";
 import HistoricalTradesSection from "./components/historical-trades-section";
-import { unrealizedPerformance, gainPercent } from "@/lib/performance";
+import { positionPerformance, gainPercent } from "@/lib/performance";
+import BasisWarning from "./components/basis-warning";
 import SymbolAllocation from "./components/symbol-allocation";
 
 function State<T>({
@@ -311,14 +312,12 @@ export default async function Home() {
                     ]}
                     empty="No positions reported."
                     rows={positions.rows.map((p) => {
-                      const performance = unrealizedPerformance(
-                        p.value.amount,
-                        p.costBasis.amount,
-                      );
+                      const performance = positionPerformance(p);
                       return [
                         <>
                           <strong>{p.symbol}</strong>
                           <small>{p.description}</small>
+                          <BasisWarning status={performance} />
                           {p.lots.length > 0 && (
                             <details>
                               <summary>{p.lots.length} purchase lot(s)</summary>
@@ -335,7 +334,12 @@ export default async function Home() {
                         number(p.units),
                         money(p.price),
                         money(p.value),
-                        money(p.costBasis),
+                        <span key="basis">
+                          {money(performance.costBasis)}
+                          {performance.basisEstimated && (
+                            <small>Estimated</small>
+                          )}
+                        </span>,
                         <span
                           key="gain"
                           className={

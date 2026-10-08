@@ -26,11 +26,25 @@ export default function HistoricalTrades({
     <section aria-labelledby="trades-title" className="historical-trades">
       <h2 id="trades-title">Historical trades</h2>
       <p className="muted">
-        Known recorded buys and sells from imported history, including closed
-        accounts. Transfers, vesting and deposits are not trades. Daily
-        snapshots do not add new trades. Reported amounts may include fees; they
-        are not realized gains or tax-lot cost basis.
+        Known recorded buys and sells from imported history and daily brokerage
+        activity sync, including closed accounts. Transfers, vesting and
+        deposits are not trades. Reported amounts may include fees; they are not
+        realized gains or tax-lot cost basis.
       </p>
+      {history.sync && (
+        <p
+          className={
+            history.sync.failed || history.sync.pending ? "notice" : "retrieved"
+          }
+        >
+          Activity sync last attempted: {date(history.sync.attemptedAt)}.
+          {history.sync.failed > 0 &&
+            ` ${history.sync.failed} account requests failed; saved trades are retained and the worker will retry.`}
+          {history.sync.pending > 0 &&
+            ` ${history.sync.pending} activities await review and have not been added as new trades.`}{" "}
+          Brokerage transactions can arrive a day or more after trading.
+        </p>
+      )}
       {!history.available ? (
         <p className="notice">
           Trade history has not been imported into this database yet.
