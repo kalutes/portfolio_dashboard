@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import type { SavedPortfolio } from "../dashboard-store";
 import type { loadPortfolio } from "../portfolio";
 import type { ManualDetail } from "../manual/portfolio";
+import {
+  accountExclusionReason,
+  type AccountExclusion,
+} from "../account-inclusion";
 
 export type SnapshotHolding = {
   key: string;
@@ -39,10 +43,18 @@ export function normalizeSnapshot(
   manual: { details: ManualDetail[]; error: string | null },
   now = new Date(),
   previous: SnapshotSource[] = [],
+  exclusions: readonly AccountExclusion[] = [],
 ): DailySnapshot {
   const sources: SnapshotSource[] = [];
   const rows: SnapshotHolding[] = [];
   const observedAt = now.toISOString();
+  const sourceKey = (scope: string, id: string) =>
+    scope + ":" + createHash("sha256").update(id).digest("hex");
+  // A failed account-list request must not resurrect excluded sources from a
+  // snapshot written by an older app version. Database IDs also work during outages.
+  const excludedSources = new Set(
+    exclusions.map((entry) => sourceKey("snaptrade", entry.accountId)),
+  );
   const old = new Map(previous.map((s) => [`${s.source}:${s.section}`, s]));
   function unknown(key: string, symbol: string) {
     rows.push({
@@ -55,6 +67,7 @@ export function normalizeSnapshot(
     });
   }
   function carry(source: string, section: "cash" | "positions") {
+    if (excludedSources.has(source)) return;
     const prior = old.get(`${source}:${section}`);
     if (prior) {
       sources.push(prior);
@@ -66,7 +79,9 @@ export function normalizeSnapshot(
       );
   }
   function unavailableScope(scope: string) {
-    const prior = previous.filter((s) => s.source.startsWith(scope + ":"));
+    const prior = previous.filter(
+      (s) => s.source.startsWith(scope + ":") && !excludedSources.has(s.source),
+    );
     if (!prior.length)
       unknown("unreported:" + scope, "Unreported " + scope + " holdings");
     for (const s of prior) carry(s.source, s.section);
@@ -106,8 +121,9 @@ export function normalizeSnapshot(
     scope: string,
   ) {
     const { account, balances, positions } = detail;
-    const source =
-      scope + ":" + createHash("sha256").update(account.id).digest("hex");
+    if (scope === "snaptrade" && accountExclusionReason(account, exclusions))
+      return;
+    const source = sourceKey(scope, account.id);
     const asOf = positions.data?.asOf ?? account.holdingsAt;
     const stale =
       staleAt(asOf, now.getTime()) ||

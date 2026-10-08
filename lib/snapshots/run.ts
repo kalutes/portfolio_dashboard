@@ -6,6 +6,7 @@ import { loadManualPortfolio } from "../manual/portfolio";
 import { withManualStore } from "../manual/store";
 import { normalizeSnapshot } from "./normalize";
 import { appendSnapshot, loadSnapshotSources } from "./store";
+import { readAccountExclusions } from "../account-exclusion-store";
 
 function manualRevision() {
   try {
@@ -37,12 +38,15 @@ export async function runDailySnapshot() {
     throw new Error(
       "Manual holdings changed during retrieval; retry snapshot.",
     );
+  const previousPortfolio = readSavedPortfolio();
+  const exclusions = readAccountExclusions();
   const snapshot = normalizeSnapshot(
     portfolio,
     manual,
     new Date(),
     loadSnapshotSources(),
+    exclusions,
   );
-  snapshot.dashboard = mergeSavedPortfolio(portfolio, readSavedPortfolio());
+  snapshot.dashboard = mergeSavedPortfolio(portfolio, previousPortfolio);
   return appendSnapshot(snapshot);
 }

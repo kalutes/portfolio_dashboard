@@ -33,19 +33,37 @@ Only two databases are needed:
 | `data/portfolio.sqlite` / `HISTORY_DB_PATH` | Frozen historical values plus appended daily snapshots         |
 | `data/manual.sqlite` / `MANUAL_DB_PATH`     | Editable manual accounts, holdings and last-known Yahoo quotes |
 
-The portfolio database has five small tables:
+The portfolio database has five observation tables and an optional accounting-settings table:
 
 - `portfolio_values`: one total per UTC date, including missing-value, estimate and stale-data flags, plus retrieval time for new observations.
 - `portfolio_holdings`: that date's consolidated symbols, quantities, values and valuation-method labels. No account reconciliation is needed.
 - `dashboard_state`: the latest normalized accounts, balances, positions and connection status for rendering the home page, including observation times and partial-sync errors.
 - `metadata`: schema version, read revision, historical cutoff and original seed checksum.
 - `latest_sources`: the latest normalized cash/holdings for each hashed source, used only to carry data forward during outages. This contains no transfer or transaction history.
+- `account_exclusions`: optional private account IDs and reasons excluded from current and future accounting. Created when the first exclusion is saved.
 
 All 3,135 imported dates and 44,355 holding records through August 31, 2026 were preserved during compaction. Estimates, missing values and interpolation dates remain visible. The frozen seed retains its existing coverage limits; a fully priced date means the known imported portfolio, not proof that every former provider was covered. The application assumes USD for these consolidated values, as agreed; it does not convert currencies.
 
 SQLite triggers prevent editing/deleting recorded days and inserting into the frozen historical period. New snapshots combine available updates with the most recently observed holdings for unavailable sources, including manual accounts. Holdings are never added on top of the previous portfolio total. No raw brokerage responses, credentials, full account numbers, PDFs, transaction histories or transfer records are stored by the daily worker. The dashboard state retains normalized display fields, including account identifiers, names, number suffixes and available position cost-basis/lot details. Source keys in `latest_sources` are hashes used to match successive observations.
 
 The old `HISTORY_POINTER_PATH` setting is no longer used. Set `HISTORY_DB_PATH` to the actual compact SQLite file if you use a custom location.
+
+### Account exclusions
+
+Account accounting settings live only in the private `account_exclusions` table in `portfolio.sqlite`. Each row contains a SnapTrade `accountId` and a `reason`. The dashboard and worker read these settings by ID; no institution, account name, number suffix, balance or user-specific exclusion is embedded in source code. Account renaming does not change its exclusion. A legacy database without the table includes all accounts. Other settings read errors stop brokerage display or the worker rather than silently including excluded accounts.
+
+An excluded brokerage account remains visible with its saved reason, but contributes nothing to current totals, cash, allocation, included account counts or new daily snapshots. The worker also excludes its prior carried holdings during account-list outages. Manual accounts are unaffected. Historical rows remain unchanged. If an account starts holding independent assets again, remove its exclusion.
+
+Use the administrative script in the **snapshot container** (which has write access to portfolio history), or locally with `HISTORY_DB_PATH` set. The script creates the settings table on the first write. `--set` accepts JSON on standard input with `accountId` and `reason`; `--remove` accepts `accountId`. Use an existing ID from the private saved account data. Identifiers and reasons belong in the database or an ignored private input file, never in tracked scripts, fixtures, documentation, command examples or deployment templates.
+
+```bash
+node --conditions=react-server --import tsx scripts/account-exclusions.ts --list
+node --conditions=react-server --import tsx scripts/account-exclusions.ts --set < /private/exclusion.json
+node --conditions=react-server --import tsx scripts/account-exclusions.ts --remove < /private/exclusion.json
+node --conditions=react-server --import tsx scripts/account-exclusions.ts --import-from /private/account-exclusions.sqlite
+```
+
+`--import-from` reads only the settings table from another SQLite file and atomically adds/updates those settings in the live database; it does not replace observations or unrelated exclusions. `--list` intentionally displays the private settings to the administrator; do not paste its output into tracked files or public logs. The other commands only report success/failure. Deploy the same updated version to both containers and apply the database setting; deploying code alone does not exclude any account. Existing historical dates are not rewritten. Back up the database before making changes. For a production audit, place consistent SQLite backups under ignored `data/prod-audit/`, without overwriting the local working databases.
 
 ## Daily snapshots
 

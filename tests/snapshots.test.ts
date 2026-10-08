@@ -12,6 +12,9 @@ import {
 import { appendSnapshot, loadSnapshotSources } from "../lib/snapshots/store";
 import { loadPortfolio, type ReadClient } from "../lib/portfolio";
 import { manualAccountDetail } from "../lib/manual/portfolio";
+import { accountExclusionReason } from "../lib/account-inclusion";
+import { sumMoney } from "../lib/normalize";
+import { allocationBySymbol } from "../lib/allocation";
 
 const now = new Date("2026-09-15T22:00:00Z");
 async function portfolio() {
@@ -55,6 +58,175 @@ async function portfolio() {
   } as unknown as ReadClient;
   return loadPortfolio(client);
 }
+
+const exclusions = [{ accountId: "plan-summary", reason: "Duplicate summary" }];
+
+async function overlappingPlan() {
+  const p = await portfolio();
+  const brokerage = p.details[0];
+  brokerage.account.name = "Self-directed brokerage";
+  brokerage.account.institution = "Example Broker";
+  brokerage.account.total.amount = 120;
+  const parent = structuredClone(brokerage);
+  parent.account = {
+    ...parent.account,
+    id: "plan-summary",
+    name: "Example Retirement Plan",
+    institution: "Example Plan Provider",
+    total: { amount: 1500 },
+  };
+  // Model a provider which reports both plan cash and positions; neither counts.
+  parent.balances.data = [{ amount: 1000 }];
+  parent.positions.data!.rows[0].value.amount = 500;
+  p.accounts.data!.push(parent.account);
+  p.details.push(parent);
+  return p;
+}
+
+test("overlapping plan is excluded from overview, allocation and persisted daily values", async () => {
+  const p = await overlappingPlan();
+  const included = p.details.filter(
+    (d) => !accountExclusionReason(d.account, exclusions),
+  );
+  assert.equal(sumMoney(included.map((d) => d.account.total)).amount, 120);
+  const allocation = allocationBySymbol(
+    included.map((d) => ({
+      balances: d.balances.data,
+      positions: d.positions.data!.rows,
+    })),
+  );
+  assert.equal(allocation.total, 120);
+  assert.equal(allocation.partial, false);
+  const daily = normalizeSnapshot(
+    p,
+    { details: [], error: null },
+    now,
+    [],
+    exclusions,
+  );
+  assert.equal(
+    daily.holdings.reduce((sum, h) => sum + (h.value ?? 0), 0),
+    120,
+  );
+  assert.equal(daily.holdings.find((h) => h.symbol === "VOO")?.quantity, 2);
+  assert.equal(daily.sources?.length, 2);
+
+  const dir = mkdtempSync(join(tmpdir(), "overlap-"));
+  const path = join(dir, "portfolio.sqlite");
+  const db = new DatabaseSync(path);
+  try {
+    db.exec(historySchema);
+    db.exec(
+      "INSERT INTO metadata VALUES ('schemaVersion','1'),('revision','test'),('historicalThrough','2026-08-31')",
+    );
+    assert.equal(appendSnapshot(daily, path), true);
+    assert.equal(
+      db.prepare("SELECT totalValue FROM portfolio_values").get()?.totalValue,
+      "120.00",
+    );
+    assert.equal(loadSnapshotSources(path).length, 2);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("unavailable plan summary does not create an unpriced holding", async () => {
+  const p = await overlappingPlan();
+  const parent = p.details[1];
+  parent.account.holdingsUnavailable = true;
+  parent.positions.data = null;
+  parent.positions.error = "Unavailable";
+  parent.balances.data = null;
+  parent.balances.error = "Unavailable";
+  const daily = normalizeSnapshot(
+    p,
+    { details: [], error: null },
+    now,
+    [],
+    exclusions,
+  );
+  assert.ok(daily.holdings.every((h) => h.value !== null));
+  assert.equal(
+    daily.holdings.reduce((sum, h) => sum + h.value!, 0),
+    120,
+  );
+});
+
+test("Brokerage outage retains its own holdings without substituting the plan summary", async () => {
+  const p = await overlappingPlan();
+  const first = normalizeSnapshot(
+    p,
+    { details: [], error: null },
+    now,
+    [],
+    exclusions,
+  );
+  p.details[0].positions.data = null;
+  p.details[0].positions.error = "Unavailable";
+  p.details[0].balances.data = [{ amount: 250 }];
+  const next = normalizeSnapshot(
+    p,
+    { details: [], error: null },
+    now,
+    first.sources,
+    exclusions,
+  );
+  assert.equal(next.holdings.find((h) => h.symbol === "VOO")?.value, 20);
+  assert.equal(next.holdings.find((h) => h.symbol === "VOO")?.stale, true);
+  assert.equal(next.holdings.find((h) => h.symbol === "CASH")?.value, 250);
+  const noPrior = normalizeSnapshot(
+    p,
+    { details: [], error: null },
+    now,
+    [],
+    exclusions,
+  );
+  assert.ok(noPrior.holdings.some((h) => h.value === null));
+  assert.equal(
+    noPrior.holdings.reduce((sum, h) => sum + (h.value ?? 0), 0),
+    250,
+  );
+});
+
+test("account-list outage cannot resurrect excluded cash or positions from older snapshots", async () => {
+  const previousPortfolio = await overlappingPlan();
+  // A database without exclusions models an older app snapshot.
+  const old = normalizeSnapshot(
+    previousPortfolio,
+    { details: [], error: null },
+    now,
+  );
+  assert.equal(old.sources?.length, 4);
+  const p = await overlappingPlan();
+  p.accounts.data = null;
+  p.accounts.error = "Unavailable";
+  p.details = [];
+  const next = normalizeSnapshot(
+    p,
+    { details: [], error: null },
+    now,
+    old.sources,
+    exclusions,
+  );
+  assert.equal(
+    next.holdings.reduce((sum, h) => sum + (h.value ?? 0), 0),
+    120,
+  );
+  assert.equal(next.sources?.length, 2);
+  assert.ok(next.holdings.every((h) => h.stale));
+  const recovered = normalizeSnapshot(
+    previousPortfolio,
+    { details: [], error: null },
+    now,
+    old.sources,
+    exclusions,
+  );
+  assert.equal(
+    recovered.holdings.reduce((sum, h) => sum + (h.value ?? 0), 0),
+    120,
+  );
+});
 test("snapshot includes manual lots and cash once, excluding sweep duplication", async () => {
   const p = await portfolio();
   const manual = manualAccountDetail(

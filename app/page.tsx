@@ -10,6 +10,11 @@ import type { Section } from "@/lib/portfolio";
 import { freshness, sumMoney } from "@/lib/normalize";
 import { date, money, number } from "@/lib/format";
 import { allocationBySymbol } from "@/lib/allocation";
+import {
+  accountExclusionReason,
+  type AccountExclusion,
+} from "@/lib/account-inclusion";
+import { readAccountExclusions } from "@/lib/account-exclusion-store";
 import SymbolAllocation from "./components/symbol-allocation";
 
 function State<T>({
@@ -99,8 +104,10 @@ export default async function Home() {
   await requireSession();
   await connection();
   let snaptrade: SavedPortfolio | null = null;
+  let exclusions: AccountExclusion[] = [];
   let savedError: string | null = null;
   try {
+    exclusions = readAccountExclusions();
     snaptrade = readSavedPortfolio();
   } catch {
     savedError =
@@ -112,6 +119,13 @@ export default async function Home() {
     ...(snaptrade?.accounts.data ?? []),
     ...manual.details.map((d) => d.account),
   ];
+  const includedAccounts = [
+    ...(snaptrade?.accounts.data ?? []).filter(
+      (a) => !accountExclusionReason(a, exclusions),
+    ),
+    ...manual.details.map((d) => d.account),
+  ];
+  const excludedCount = combinedAccounts.length - includedAccounts.length;
   const portfolio = {
     accounts: {
       data:
@@ -137,8 +151,9 @@ export default async function Home() {
         ...d,
         manual: false,
         notes: [] as string[],
+        exclusionReason: accountExclusionReason(d.account, exclusions),
       })),
-      ...manual.details,
+      ...manual.details.map((d) => ({ ...d, exclusionReason: null })),
     ],
     retrievedAt,
   };
@@ -149,12 +164,11 @@ export default async function Home() {
     if (second === null) return -1;
     return second - first;
   });
-  const total = sumMoney((portfolio.accounts.data ?? []).map((a) => a.total));
-  const cash = sumMoney(
-    portfolio.details.flatMap((d) => d.balances.data ?? []),
-  );
+  const includedDetails = portfolio.details.filter((d) => !d.exclusionReason);
+  const total = sumMoney(includedAccounts.map((a) => a.total));
+  const cash = sumMoney(includedDetails.flatMap((d) => d.balances.data ?? []));
   const allocation = allocationBySymbol(
-    portfolio.details.map((d) => ({
+    includedDetails.map((d) => ({
       balances: d.balances.data,
       positions: d.positions.data?.rows ?? null,
     })),
@@ -163,14 +177,12 @@ export default async function Home() {
     manual.error ||
     portfolio.accounts.error ||
     portfolio.connections.error ||
-    portfolio.details.some((d) =>
-      [d.balances, d.positions].some((s) => s.error),
-    ),
+    includedDetails.some((d) => [d.balances, d.positions].some((s) => s.error)),
   );
-  const missingTotals = (portfolio.accounts.data ?? []).filter(
+  const missingTotals = includedAccounts.filter(
     (a) => a.total.amount === null,
   ).length;
-  const missingCash = portfolio.details.some(
+  const missingCash = includedDetails.some(
     (d) =>
       !d.balances.data?.length ||
       d.balances.data.some((b) => b.amount === null),
@@ -214,6 +226,8 @@ export default async function Home() {
                 ? `${missingTotals} account total(s) omitted: value unavailable. `
                 : ""}
               Includes reported account totals and manual holdings.
+              {excludedCount > 0 &&
+                ` ${excludedCount} account(s) excluded by accounting settings.`}
             </p>
           </article>
           <article className="summary">
@@ -227,10 +241,12 @@ export default async function Home() {
           <article className="summary">
             <h3>Accounts</h3>
             <p className="big">
-              {portfolio.accounts.data?.length ?? "Unavailable"}
+              {portfolio.accounts.data
+                ? includedAccounts.length
+                : "Unavailable"}
             </p>
             <p className="muted">
-              {portfolio.details.reduce(
+              {includedDetails.reduce(
                 (n, d) => n + (d.positions.data?.rows.length ?? 0),
                 0,
               )}{" "}
@@ -290,6 +306,12 @@ export default async function Home() {
               </div>
               <p className="account-value">{money(d.account.total)}</p>
             </header>
+            {d.exclusionReason && (
+              <p className="notice" role="status">
+                Excluded from portfolio totals, cash, allocation and new daily
+                snapshots. {d.exclusionReason}
+              </p>
+            )}
             {d.manual ? (
               <>
                 <p className="muted">
